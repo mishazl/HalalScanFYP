@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>HalalScan - Camera Scan</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='scan.css') }}">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=Open+Sans&display=swap" rel="stylesheet">
+
+</head>
+
+<body>
+  <div class="scan-instruction">
+    <strong>Tips:</strong> Align the ingredient list inside the box. <br>
+    Make sure the text is well-lit and in focus for best results.
+  </div>
+  <div class="camera-wrapper">
+    <video id="camera" autoplay playsinline></video>
+    <div class="scan-frame"></div>
+    <div class = "scan-action">
+      <button class = "scan-button" onclick="captureAndProceed()">Scan</button>
+      <button class = "cancel-button" onclick="window.location.href=`{{ url_for('index') }}`">Cancel</button>
+    </div>
+  </div>
+
+  <div class="bottom-nav">
+    <a class="nav-button" href="{{ url_for('index') }}">Home</a>
+    <a class="nav-button" href="{{ url_for('scan') }}">Upload</a>
+  </div>
+
+  <script>
+    const video = document.getElementById('camera');
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: "environment" } } })
+      .then(stream => video.srcObject = stream)
+      .catch(() => {
+        navigator.mediaDevices.getUserMedia({ video: true })
+          .then(stream => video.srcObject = stream)
+          .catch(() => alert("Unable to access camera."));
+      });
+
+    function captureAndProceed() {
+      if (video.videoWidth === 0 || video.videoHeight === 0) {
+        alert("Camera not ready. Please allow access and wait a moment.");
+        return;
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth * 0.8;
+      canvas.height = video.videoHeight * 0.3;
+
+      const ctx = canvas.getContext('2d');
+      const cropX = video.videoWidth * 0.1;
+      const cropY = video.videoHeight * 0.35;
+      ctx.drawImage(
+        video, cropX, cropY, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height
+      );
+
+      const base64Image= canvas.toDataURL('image/jpeg');
+      sessionStorage.setItem('previewImage', base64Image);
+
+      canvas.toBlob(function(blob) {
+        if (!blob) {
+          alert("Failed to capture image. Please try again.");
+          return;
+        }
+      const formData = new FormData();
+      formData.append('file', blob, 'scan.jpg');
+
+      fetch('{{ url_for("ocr") }}', {
+        method: 'POST',
+        body: formData
+      })
+      .then(res => res.json())
+      .then(data => {
+        sessionStorage.setItem('ocrResult', JSON.stringify(data || {}));
+        window.location.href = '/scan';
+      })
+      .catch(err => {
+        console.error('Capture OCR error:', err);
+        sessionStorage.setItem('ocrResult', JSON.stringify({error: err.message}));
+        window.location.href = '/scan';
+      });
+    }, 'image/jpeg');
+    }
+  </script>
+</body>
+</html>

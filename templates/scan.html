@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>HalalScan - Camera Scan</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='scan.css') }}">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=Open+Sans&display=swap" rel="stylesheet">
+
+</head>
+<body>
+  <div class="scan-page-container">
+    <!-- Header / Instructions -->
+    <div class="instruction-box">
+      <h2>Upload Food Label</h2>
+      <p>Please upload a clear image of the ingredient list. HalalScan will extract and analyze the content to determine the halal status.</p>
+      <ul>
+        <li>📷 Make sure the image is sharp and well-lit</li>
+        <li>📝 Ingredients must be readable</li>
+        <li>💡 Accepted formats: PNG, JPG, JPEG</li>
+      </ul>
+    </div>
+  
+    <!-- Upload Form -->
+    <form id="upload-form" enctype="multipart/form-data" class="upload-box">
+      <input type="file" id="upload-image" accept="image/*" />
+      <button type="submit" class="check-button">Check Halal Status</button>
+    </form>
+
+    <!-- Image Preview -->
+    <div class="image-preview" id="image-preview-section">
+      <img id="preview-image" src="" alt="Preview will appear here" />
+    </div>
+
+    <script>
+      const preview = localStorage.getItem('previewImage');
+      if (preview) {
+        const img = document.getElementById('preview-image');
+        img.src = preview;
+      }
+    </script>
+  
+    <!-- Loading -->
+    <div id="loading-spinner" class="loading-box" style="display: none;">
+      <p>🔍 Scanning... Please wait</p>
+      <div class="spinner"></div>
+    </div>
+  
+    <!-- Results -->
+    <section id="ocr-result" class="result-box">
+      <div id="result-text"></div>
+    </section>
+  
+  </div>
+
+  <footer class="bottom-nav">
+    <a href="{{ url_for('index') }}" class="nav-button">Home</a>
+    <a href="{{ url_for('scan_camera') }}" class="nav-button">Scan</a>
+  </footer>
+  
+<script>
+const video = document.getElementById('camera');
+const captureButton = document.getElementById('capture-btn');
+const uploadForm = document.getElementById('upload-form');
+const uploadImage = document.getElementById('upload-image');
+const resultText = document.getElementById('result-text');
+let stream;
+
+  window.addEventListener('DOMContentLoaded', () => {
+    const preview = sessionStorage.getItem('previewImage');
+    const resultRaw = sessionStorage.getItem('ocrResult');
+    const result = resultRaw ? JSON.parse(resultRaw) : null;
+
+    if (preview) {
+      const img = document.getElementById('preview-image');
+      img.src = preview;
+      img.style.display = 'block';
+    }
+
+    if (result && result.ingredients && result.ingredients.length > 0) {
+      handleOcrDisplay(result);
+    } else if (resultRaw) {
+      document.getElementById('result-text').innerHTML = `
+        <p>No recognizable ingredients found. Please try again with a clear ingredient label.</p>`;
+    }
+  });
+</script>
+
+<script>
+uploadForm.addEventListener('submit', function (e) {
+  e.preventDefault();
+  const file = uploadImage.files[0];
+  if (!file) return;
+  
+  document.getElementById("loading-spinner").style.display = "block";
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const reader = new FileReader();
+    reader.onload = function (e) {
+      document.getElementById('preview-image').src = e.target.result;
+      document.getElementById('preview-image').style.display = 'block';
+      sessionStorage.setItem('previewImage', e.target.result);
+    };
+    reader.readAsDataURL(file);
+    
+  const imageUrl = URL.createObjectURL(file);
+  document.getElementById('preview-image').src = imageUrl;
+
+  fetch('{{ url_for("ocr") }}', {
+    method: 'POST',
+    body: formData
+  })
+  .then(res => res.json())
+  .then(data => {
+    document.getElementById("loading-spinner").style.display = "none";
+    handleOcrDisplay(data);
+  })
+  .catch(err => {
+  document.getElementById("loading-spinner").style.display = "none";
+  console.error('Upload OCR error:', err);
+  });
+});
+
+function handleOcrDisplay(data) {
+const ingredients = Array.isArray(data.ingredients) ? data.ingredients : [];
+
+  const resultSection = document.getElementById('ocr-result');
+  const resultText = document.getElementById('result-text');
+
+  if (!resultSection || !resultText) {
+    console.error('Missing #result-section or #result-text in HTML.');
+    return;
+  }
+
+  if (ingredients.length === 0 || (data.text || '').trim().length < 10) {
+    resultSection.innerHTML = `
+      <p>No recognizable ingredients found. Please try again with a clear ingredient label.</p>`;
+    resultText.innerHTML = '';
+    return;
+  }
+
+  let text = data.text || '';
+  ingredients.sort((a, b) => (b.name || '').length - (a.name || '').length);
+
+  const matched = new Set();
+  const matchedIngredients = new Set();
+  const placeholderMap = new Map();
+  let counter = 0;
+
+  ingredients.forEach(ing => {
+    const name = ing.name?.toLowerCase();
+    const status = ing.status || 'unknown';
+    const explanation = ing.explanation || 'No explanation';
+    const ecode = ing.ecode || '';
+    const category = ing.category || '';
+
+    const color =
+      status === 'halal' ? 'green' :
+      status === 'haram' ? 'red' :
+      status === 'syubhah' || status === 'doubtful' ? 'orange' : 'gray';
+
+    if (name && !matched.has(`name-${name}`)) {
+      const nameRegex = new RegExp(`\\b${name.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}\\b`, 'gi');
+      text = text.replace(nameRegex, (match) => {
+        const placeholder = `@@MATCH_${counter}@@`;
+        const span = `<span class="ingredient-click"
+                        style="background-color:${color}; color:white; padding:4px 10px; border-radius:20px; margin:3px; display:inline-block; text-decoration:none; cursor:pointer"
+                        data-name="${ing.name}"
+                        data-status="${status}"
+                        data-ecode="${ecode}"
+                        data-category="${category}"
+                        data-explanation="${explanation}">${match}</span>`;
+        placeholderMap.set(placeholder, span);
+        counter++;
+        matched.add(`name-${name}`);
+        matchedIngredients.add(ing);
+        return placeholder;
+      });
+    }
+
+    if (/^\d{3,4}$/.test(ecode)) {
+      const eVariants = [`e${ecode}`, `E${ecode}`, `ins${ecode}`, `INS${ecode}`, `${ecode}`];
+      eVariants.forEach(variant => {
+        const regex = new RegExp(`\\b${variant}\\b`, 'gi');
+        text = text.replace(regex, (match) => {
+          const key = `ecode-${ecode}-${match}`;
+          if (matched.has(key)) return match;
+          matched.add(key);
+          const placeholder = `@@MATCH_${counter}@@`;
+          const span = `<span class="ingredient-click"
+                          style="background-color:${color}; color:white; padding:4px 10px; border-radius:20px; margin:3px; display:inline-block; text-decoration:none; cursor:pointer"
+                          data-name="${ing.name}"
+                          data-status="${status}"
+                          data-ecode="${ecode}"
+                          data-category="${category}"
+                          data-explanation="${explanation}">${match}</span>`;
+          placeholderMap.set(placeholder, span);
+          counter++;
+          matchedIngredients.add(ing);
+          return placeholder;
+        });
+      });
+    }
+  });
+
+  const count = { halal: 0, haram: 0, doubtful: 0 };
+  matchedIngredients.forEach(ing => {
+    const status = (ing.status || '').toLowerCase();
+    if (status === 'halal') count.halal++;
+    else if (status === 'haram') count.haram++;
+    else if (status === 'doubtful' || status === 'syubhah') count.doubtful++;
+  });
+
+  const totalIngredients = count.halal + count.haram + count.doubtful;
+
+  let summaryStatus = '';
+  let summaryColor = '';
+  if (count.haram > 0) {
+    summaryStatus = '❌ Not Halal (contains haram ingredients)';
+    summaryColor = '#f44336';
+  } else if (count.halal === totalIngredients) {
+    summaryStatus = '✅ Halal (all ingredients are halal)';
+    summaryColor = '#4caf50';
+  } else if (count.halal > count.doubtful) {
+    summaryStatus = '✅ Most likely Halal — but please verify with the manufacturer.';
+    summaryColor = '#4caf50';
+  } else if (count.doubtful > count.halal) {
+    summaryStatus = '⚠️ May not be Halal — check with the manufacturer.';
+    summaryColor = '#ff9800';
+  } else {
+    summaryStatus = '⚠️ Halal status uncertain — please verify manually.';
+    summaryColor = '#9e9e9e';
+  }
+
+  const summaryBox = `
+    <div style="background:${summaryColor}; color:white; padding:15px; border-radius:10px; font-size:1.1rem; margin-bottom:20px; font-weight:bold; text-align:center;">
+      ${summaryStatus}
+    </div>`;
+
+  placeholderMap.forEach((value, key) => {
+    text = text.replace(key, value);
+  });
+
+  resultText.innerHTML = text;
+  resultSection.innerHTML = summaryBox + resultText.outerHTML;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('popup-ok').addEventListener('click', () => {
+    document.getElementById('ingredient-popup').style.display = 'none';
+  });
+
+  document.getElementById('ocr-result').addEventListener('click', (e) => {
+  const el = e.target.closest('.ingredient-click');
+  if (!el) return;
+
+  const status = el.dataset.status.toLowerCase();
+  document.getElementById('popup-note').textContent =
+    (status === 'doubtful' || status === 'syubhah')
+      ? '⚠️ Please verify the source with the manufacturer.'
+      : '';
+
+  document.getElementById('popup-title').textContent = el.dataset.name;
+  document.getElementById('popup-status').textContent = el.dataset.status;
+  document.getElementById('popup-category').textContent = el.dataset.category;
+  document.getElementById('popup-ecode').textContent = el.dataset.ecode;
+  document.getElementById('popup-explanation').textContent = el.dataset.explanation;
+  document.getElementById('ingredient-popup').style.display = 'flex';
+});
+});
+
+</script>
+
+<div id="ingredient-popup" class="popup-container" style="display:none;">
+  <div class="popup-box">
+    <p id="popup-note" style="color:gray; font-weight: bold; font-style:italic;"></p>
+    <h3 id="popup-title"></h3>
+    <p><strong>Status:</strong> <span id="popup-status"></span></p>
+    <p><strong>Category:</strong> <span id="popup-category"></span></p>
+    <p><strong>E-code:</strong> <span id="popup-ecode"></span></p>
+    <p><strong>Explanation:</strong></p>
+    <p id="popup-explanation" style="text-align:left;"></p>
+    <button id="popup-ok">OK</button>
+  </div>
+</div>
+</body>
+</html>

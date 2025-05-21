@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>HalalScan - Home</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@10/swiper-bundle.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/swiper@10/swiper-bundle.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=Open+Sans&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+  
+</head>
+<body> 
+
+<section class="hero-section">
+  <div class="hero-content">
+    <h1 class="hero-title">Discover Halal Ingredients Easily</h1>
+    <p class="hero-subtitle">
+      Scan food labels and instantly check for halal status. Our system uses OCR and a trusted ingredient database to help you make confident choices.
+    </p>
+    <button class="hero-button" id="get-started-btn">Get Started</button>
+  </div>
+  <div id="choose-action-popup" class="popup-overlay">
+    <div class="popup-box">
+      <h2>Select Input Method</h2>
+      <button id="choose-scan">📷 Scan with Camera</button>
+      <button id="choose-upload">🖼️ Upload Image</button>
+    </div>
+  </div>
+</section>
+
+<section class="features-section">
+  <h2 class="section-title">What HalalScan Offers</h2>
+  <div class="features-grid">
+    <div class="feature-item">
+      <img src="{{ url_for('static', filename='icons/scan-svgrepo-com.svg') }}" alt="Camera Icon" class="feature-icon">
+      <h3>Instant Scanning</h3>
+      <p>Use your camera to detect ingredients directly from product labels in real time.</p>
+    </div>
+    <div class="feature-item">
+      <img src="{{ url_for('static', filename='icons/cloud-add.svg') }}" alt="Camera Icon" class="feature-icon">
+      <h3>Verified Database</h3>
+      <p>Check ingredients against a maintained and verified halal ingredient database.</p>
+    </div>
+    <div class="feature-item">
+      <img src="{{ url_for('static', filename='icons/search-status.svg') }}" alt="Camera Icon" class="feature-icon">
+      <h3>Clear Classification</h3>
+      <p>Each item is marked as Halal, Mushbooh, or Haram with a quick explanation.</p>
+    </div>
+    <div class="feature-item">
+      <img src="{{ url_for('static', filename='icons/eye-slash.svg') }}" alt="Camera Icon" class="feature-icon">
+      <h3>Private & Secure</h3>
+      <p>Scans are processed on-device. No uploads, no tracking, no stored photos.</p>
+    </div>
+  </div>
+</section>
+
+<section class="stats-section">
+  <div class="stats-header">
+    <h1 class="main-title">MOST SCANNED INGREDIENTS</h1>
+    <p class="stats-description">
+    A quick glance at the ingredients users scan the most for halal verification.
+  </p>
+  </div>
+
+  <div class="tab-buttons">
+    <button class="tab-button active" onclick="switchTab('weekly')">Weekly</button>
+    <button class="tab-button" onclick="switchTab('monthly')">Monthly</button>
+  </div>
+
+  <div class="graph-wrapper">
+    <div id="weekly" class="graph-tab active-tab">
+      <canvas id="scanChartWeekly" width="400" height="300"></canvas>
+    </div>
+    <div id="monthly" class="graph-tab">
+      <canvas id="scanChartMonthly" width="400" height="300"></canvas>
+    </div>
+  </div>
+</section>
+
+<script>
+  let chartWeekly, chartMonthly;
+
+  function switchTab(tabId) {
+    document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.graph-tab').forEach(tab => tab.classList.remove('active-tab'));
+
+    document.querySelector(`[onclick="switchTab('${tabId}')"]`).classList.add('active');
+    document.getElementById(tabId).classList.add('active-tab');
+  }
+
+  function loadGraph(period = 'weekly') {
+    fetch(`/get-scanned-stats?period=${period}`)
+      .then(res => res.json())
+      .then(data => {
+        const labels = data.map(d => d.ingredient);
+        const counts = data.map(d => d.count);
+
+        const canvasId = period === 'weekly' ? 'scanChartWeekly' : 'scanChartMonthly';
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        if (!ctx) {
+          console.error('Could not find canvas context for ' + period);
+          return;
+        }
+
+        if (period === 'weekly' && chartWeekly) chartWeekly.destroy();
+        if (period === 'monthly' && chartMonthly) chartMonthly.destroy();
+
+        const newChart = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: labels,
+            datasets: [{
+              label: `Top Scanned Ingredients (${period})`,
+              data: counts,
+              backgroundColor: counts.map((_, i) => {
+                if (i === 0) return 'rgba(255, 99, 132, 0.8)';
+                if (i === 1) return 'rgba(255, 206, 86, 0.8)';
+                if (i === 2) return 'rgba(75, 192, 192, 0.8)';
+                return 'rgba(153, 102, 255, 0.5)';
+              }),
+              borderColor: counts.map((_, i) => {
+                if (i === 0) return 'rgba(255, 99, 132, 0.8)';
+                if (i === 1) return 'rgba(255, 206, 86, 0.8)';
+                if (i === 2) return 'rgba(75, 192, 192, 0.8)';
+                return 'rgba(153, 102, 255, 0.5)';
+              }),
+              borderWidth: 1,
+              borderRadius: 5
+            }]
+          },
+          options: {
+            responsive: true,
+            plugins: {
+              legend: {
+                display: true,
+                position: 'top'
+              }
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+                ticks: {
+                  stepSize: 1
+                }
+              }
+            }
+          }
+        });
+
+        if (period === 'weekly') chartWeekly = newChart;
+        if (period === 'monthly') chartMonthly = newChart;
+      })
+      .catch(err => {
+        console.error(`Failed to load ${period} graph data:`, err);
+      });
+  }
+
+  window.onload = () => {
+    loadGraph('weekly');
+    loadGraph('monthly');
+  };
+</script>
+
+<script>
+  document.getElementById('get-started-btn').addEventListener('click', () => {
+    document.getElementById('choose-action-popup').style.display = 'flex';
+  });
+
+  document.getElementById('choose-scan').addEventListener('click', () => {
+    window.location.href = '/scan-camera';
+  });
+
+  document.getElementById('choose-upload').addEventListener('click', () => {
+    window.location.href = '/scan'; 
+  });
+
+  document.addEventListener('DOMContentLoaded', () => {
+  const popup = document.getElementById('choose-action-popup');
+  const popupBox = document.querySelector('.popup-box');
+  const getStartedBtn = document.getElementById('get-started-btn');
+  const chooseScan = document.getElementById('choose-scan');
+  const chooseUpload = document.getElementById('choose-upload');
+
+  getStartedBtn.addEventListener('click', (e) => {
+    e.preventDefault(); 
+    popup.style.display = 'flex';
+  });
+
+  chooseScan.addEventListener('click', () => {
+    window.location.href = '/scan-camera';
+  });
+
+  chooseUpload.addEventListener('click', () => {
+    window.location.href = '/scan'; 
+  });
+
+  popup.addEventListener('click', (e) => {
+    if (!popupBox.contains(e.target)){
+      popup.style.display = 'none';
+    }
+  });
+});
+</script>
+
+</body>
+</html>
