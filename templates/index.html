@@ -17,6 +17,7 @@
 <body> 
 
 <section class="hero-section">
+  <!--Hero Section-->
   <div class="hero-content">
     <h1 class="hero-title">Discover Halal Ingredients Easily</h1>
     <p class="hero-subtitle">
@@ -24,6 +25,8 @@
     </p>
     <button class="hero-button" id="get-started-btn">Get Started</button>
   </div>
+  
+  <!--Popup to choose input-->
   <div id="choose-action-popup" class="popup-overlay">
     <div class="popup-box">
       <h2>Select Input Method</h2>
@@ -33,6 +36,7 @@
   </div>
 </section>
 
+<!--Showcase what HalalScan offers-->
 <section class="features-section">
   <h2 class="section-title">What HalalScan Offers</h2>
   <div class="features-grid">
@@ -59,6 +63,7 @@
   </div>
 </section>
 
+<!--Display most scanned ingredients-->
 <section class="stats-section">
   <div class="stats-header">
     <h1 class="main-title">MOST SCANNED INGREDIENTS</h1>
@@ -66,12 +71,12 @@
     A quick glance at the ingredients users scan the most for halal verification.
   </p>
   </div>
-
   <div class="tab-buttons">
     <button class="tab-button active" onclick="switchTab('weekly')">Weekly</button>
     <button class="tab-button" onclick="switchTab('monthly')">Monthly</button>
   </div>
 
+  <!--Graph placeholder-->
   <div class="graph-wrapper">
     <div id="weekly" class="graph-tab active-tab">
       <canvas id="scanChartWeekly" width="400" height="300"></canvas>
@@ -85,6 +90,7 @@
 <script>
   let chartWeekly, chartMonthly;
 
+  // Switch between weekly or monthly chart
   function switchTab(tabId) {
     document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
     document.querySelectorAll('.graph-tab').forEach(tab => tab.classList.remove('active-tab'));
@@ -93,6 +99,7 @@
     document.getElementById(tabId).classList.add('active-tab');
   }
 
+  // Fetch and load graph data by weekly or monthly
   function loadGraph(period = 'weekly') {
     fetch(`/get-scanned-stats?period=${period}`)
       .then(res => res.json())
@@ -107,9 +114,11 @@
           return;
         }
 
+        // Destroy old charts for new session
         if (period === 'weekly' && chartWeekly) chartWeekly.destroy();
         if (period === 'monthly' && chartMonthly) chartMonthly.destroy();
 
+        // Create new chart
         const newChart = new Chart(ctx, {
           type: 'bar',
           data: {
@@ -160,6 +169,7 @@
       });
   }
 
+  // Load graph data 
   window.onload = () => {
     loadGraph('weekly');
     loadGraph('monthly');
@@ -179,6 +189,7 @@
     window.location.href = '/scan'; 
   });
 
+  // Close popup if user click outside the popup box
   document.addEventListener('DOMContentLoaded', () => {
   const popup = document.getElementById('choose-action-popup');
   const popupBox = document.querySelector('.popup-box');

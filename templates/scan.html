@@ -32,14 +32,6 @@
     <div class="image-preview" id="image-preview-section">
       <img id="preview-image" src="" alt="Preview will appear here" />
     </div>
-
-    <script>
-      const preview = localStorage.getItem('previewImage');
-      if (preview) {
-        const img = document.getElementById('preview-image');
-        img.src = preview;
-      }
-    </script>
   
     <!-- Loading -->
     <div id="loading-spinner" class="loading-box" style="display: none;">
@@ -51,36 +43,38 @@
     <section id="ocr-result" class="result-box">
       <div id="result-text"></div>
     </section>
-  
   </div>
 
+  <!--Navigation-->
   <footer class="bottom-nav">
     <a href="{{ url_for('index') }}" class="nav-button">Home</a>
     <a href="{{ url_for('scan_camera') }}" class="nav-button">Scan</a>
   </footer>
   
 <script>
-const video = document.getElementById('camera');
-const captureButton = document.getElementById('capture-btn');
 const uploadForm = document.getElementById('upload-form');
 const uploadImage = document.getElementById('upload-image');
 const resultText = document.getElementById('result-text');
 let stream;
 
   window.addEventListener('DOMContentLoaded', () => {
+    // Retrieve previous image stored and OCR result
     const preview = sessionStorage.getItem('previewImage');
     const resultRaw = sessionStorage.getItem('ocrResult');
     const result = resultRaw ? JSON.parse(resultRaw) : null;
 
+    // Show preview image if exist
     if (preview) {
       const img = document.getElementById('preview-image');
       img.src = preview;
       img.style.display = 'block';
     }
 
+    // Display OCR results if detectable 
     if (result && result.ingredients && result.ingredients.length > 0) {
       handleOcrDisplay(result);
     } else if (resultRaw) {
+      // If OCR result exists but no ingredients found
       document.getElementById('result-text').innerHTML = `
         <p>No recognizable ingredients found. Please try again with a clear ingredient label.</p>`;
     }
@@ -98,6 +92,7 @@ uploadForm.addEventListener('submit', function (e) {
   const formData = new FormData();
   formData.append('file', file);
 
+  // Read file for preview and store in session storage
   const reader = new FileReader();
     reader.onload = function (e) {
       document.getElementById('preview-image').src = e.target.result;
@@ -106,9 +101,7 @@ uploadForm.addEventListener('submit', function (e) {
     };
     reader.readAsDataURL(file);
     
-  const imageUrl = URL.createObjectURL(file);
-  document.getElementById('preview-image').src = imageUrl;
-
+  // Send file to OCR
   fetch('{{ url_for("ocr") }}', {
     method: 'POST',
     body: formData
@@ -125,6 +118,7 @@ uploadForm.addEventListener('submit', function (e) {
 });
 
 function handleOcrDisplay(data) {
+// Ensure ingredients in array to avoid errors
 const ingredients = Array.isArray(data.ingredients) ? data.ingredients : [];
 
   const resultSection = document.getElementById('ocr-result');
@@ -135,6 +129,7 @@ const ingredients = Array.isArray(data.ingredients) ? data.ingredients : [];
     return;
   }
 
+  // If no ingredients found, show warning
   if (ingredients.length === 0 || (data.text || '').trim().length < 10) {
     resultSection.innerHTML = `
       <p>No recognizable ingredients found. Please try again with a clear ingredient label.</p>`;
@@ -143,6 +138,7 @@ const ingredients = Array.isArray(data.ingredients) ? data.ingredients : [];
   }
 
   let text = data.text || '';
+  // Sort ingredients by name length to avoid matching short words inside longer ones
   ingredients.sort((a, b) => (b.name || '').length - (a.name || '').length);
 
   const matched = new Set();
@@ -150,6 +146,7 @@ const ingredients = Array.isArray(data.ingredients) ? data.ingredients : [];
   const placeholderMap = new Map();
   let counter = 0;
 
+  // Go through each ingredient and highlight in text
   ingredients.forEach(ing => {
     const name = ing.name?.toLowerCase();
     const status = ing.status || 'unknown';
@@ -157,17 +154,20 @@ const ingredients = Array.isArray(data.ingredients) ? data.ingredients : [];
     const ecode = ing.ecode || '';
     const category = ing.category || '';
 
+    // Choose color based on the status
     const color =
       status === 'halal' ? 'green' :
       status === 'haram' ? 'red' :
       status === 'syubhah' || status === 'doubtful' ? 'orange' : 'gray';
 
+    // If ingredient name has not matched,
     if (name && !matched.has(`name-${name}`)) {
+      // Create regex to find the ingredient in the text
       const nameRegex = new RegExp(`\\b${name.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}\\b`, 'gi');
       text = text.replace(nameRegex, (match) => {
         const placeholder = `@@MATCH_${counter}@@`;
-        const span = `<span class="ingredient-click"
-                        style="background-color:${color}; color:white; padding:4px 10px; border-radius:20px; margin:3px; display:inline-block; text-decoration:none; cursor:pointer"
+        const statusClass = status.toLowerCase();
+        const span = `<span class="ingredient-click ${statusClass}"
                         data-name="${ing.name}"
                         data-status="${status}"
                         data-ecode="${ecode}"
@@ -181,6 +181,7 @@ const ingredients = Array.isArray(data.ingredients) ? data.ingredients : [];
       });
     }
 
+    // Check for E-numbers like E100 or INS100
     if (/^\d{3,4}$/.test(ecode)) {
       const eVariants = [`e${ecode}`, `E${ecode}`, `ins${ecode}`, `INS${ecode}`, `${ecode}`];
       eVariants.forEach(variant => {
@@ -190,8 +191,8 @@ const ingredients = Array.isArray(data.ingredients) ? data.ingredients : [];
           if (matched.has(key)) return match;
           matched.add(key);
           const placeholder = `@@MATCH_${counter}@@`;
-          const span = `<span class="ingredient-click"
-                          style="background-color:${color}; color:white; padding:4px 10px; border-radius:20px; margin:3px; display:inline-block; text-decoration:none; cursor:pointer"
+          const statusClass = status.toLowerCase();
+          const span = `<span class="ingredient-click ${statusClass}"
                           data-name="${ing.name}"
                           data-status="${status}"
                           data-ecode="${ecode}"
@@ -206,6 +207,7 @@ const ingredients = Array.isArray(data.ingredients) ? data.ingredients : [];
     }
   });
 
+  // Count how many halal, haram, doubtful ingredient found
   const count = { halal: 0, haram: 0, doubtful: 0 };
   matchedIngredients.forEach(ing => {
     const status = (ing.status || '').toLowerCase();
@@ -216,27 +218,29 @@ const ingredients = Array.isArray(data.ingredients) ? data.ingredients : [];
 
   const totalIngredients = count.halal + count.haram + count.doubtful;
 
+  // Summary for the whole product status
   let summaryStatus = '';
   let summaryColor = '';
   if (count.haram > 0) {
-    summaryStatus = '❌ Not Halal (contains haram ingredients)';
-    summaryColor = '#f44336';
+    summaryStatus = 'Not Halal (contains haram ingredients)';
+    summaryClass = 'summary-haram';
   } else if (count.halal === totalIngredients) {
-    summaryStatus = '✅ Halal (all ingredients are halal)';
-    summaryColor = '#4caf50';
+    summaryStatus = 'Halal (all ingredients are halal)';
+    summaryClass = 'summary-halal';
   } else if (count.halal > count.doubtful) {
-    summaryStatus = '✅ Most likely Halal — but please verify with the manufacturer.';
-    summaryColor = '#4caf50';
+    summaryStatus = 'Most likely Halal — but please verify with the manufacturer.';
+    summaryClass = 'summary-halal';
   } else if (count.doubtful > count.halal) {
-    summaryStatus = '⚠️ May not be Halal — check with the manufacturer.';
-    summaryColor = '#ff9800';
+    summaryStatus = 'May not be Halal — check with the manufacturer.';
+    summaryClass = 'summary-doubt';
   } else {
-    summaryStatus = '⚠️ Halal status uncertain — please verify manually.';
-    summaryColor = '#9e9e9e';
+    summaryStatus = 'Halal status uncertain — please verify manually.';
+    summaryClass = 'summary-uncertain';
   }
 
+  // Container to display the product status summary
   const summaryBox = `
-    <div style="background:${summaryColor}; color:white; padding:15px; border-radius:10px; font-size:1.1rem; margin-bottom:20px; font-weight:bold; text-align:center;">
+    <div class="summary-box ${summaryClass}">
       ${summaryStatus}
     </div>`;
 
@@ -248,21 +252,26 @@ const ingredients = Array.isArray(data.ingredients) ? data.ingredients : [];
   resultSection.innerHTML = summaryBox + resultText.outerHTML;
 }
 
+// Hide popup box when "OK" is clicked
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('popup-ok').addEventListener('click', () => {
     document.getElementById('ingredient-popup').style.display = 'none';
   });
 
+  // When any ingredient in the OCR result is clicked
   document.getElementById('ocr-result').addEventListener('click', (e) => {
+  // Check if the clicked thing is clickable or not
   const el = e.target.closest('.ingredient-click');
-  if (!el) return;
+  if (!el) return; // If not clickable, do nothing
 
+  // Shows warning if any ingredient clicked is doubtful inside the popup box
   const status = el.dataset.status.toLowerCase();
   document.getElementById('popup-note').textContent =
     (status === 'doubtful' || status === 'syubhah')
       ? '⚠️ Please verify the source with the manufacturer.'
       : '';
 
+  // Ingredient details inside the popup
   document.getElementById('popup-title').textContent = el.dataset.name;
   document.getElementById('popup-status').textContent = el.dataset.status;
   document.getElementById('popup-category').textContent = el.dataset.category;

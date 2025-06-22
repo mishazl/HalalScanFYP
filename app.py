@@ -23,6 +23,7 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'ba
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
+# Configure Tesseract OCR
 pytesseract.pytesseract.tesseract_cmd = r'C:\Users\misha\AppData\Local\Programs\Tesseract-OCR\tesseract.exe'
 
 class User(db.Model, UserMixin):
@@ -111,6 +112,7 @@ def has_ecode(self):
         print("Prefill Form: ", form)
         return super().on_form_prefill(form, id)
 
+# Admin login
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -126,6 +128,7 @@ def login():
         
     return render_template('login.html')
 
+# Admin logout
 @app.route('/logout')
 def logout():
     logout_user()
@@ -140,21 +143,26 @@ class SecureModelView(IngredientModelView):
 admin = Admin(app, name='Admin', template_mode='bootstrap3', index_view=MyAdminIndexView())
 admin.add_view(SecureModelView(Ingredient, db.session))
 
+# Homepage
 @app.route('/')
 def index():
     return render_template('index.html')
 
+# Scan with camera
 @app.route('/scan-camera')
 def scan_camera():
     return render_template('camera_scan.html')
 
+# Upload image 
 @app.route('/scan')
 def scan():
     return render_template('scan.html', trigger_upload=True)
 
+# OCR Processing
 @app.route('/ocr', methods=['POST'])
 def ocr():
     image = None
+    image_data = None
     if request.content_type == 'application/json':
         data = request.get_json()
         image_data = data.get('image', '')
@@ -181,29 +189,34 @@ def ocr():
     else:
         return jsonify({'error': 'Unsupported content type or missing data'}), 400
 
+    # Preprocess image to improve OCR accuracy
     image = image.convert('L')  
     enhancer = ImageEnhance.Contrast(image)
     image = enhancer.enhance(2.0)
     threshold = 128
-    image = image.point(lambda x: 0 if x < threshold else 255, '1')  # Binarize
+    image = image.point(lambda x: 0 if x < threshold else 255, '1') 
     text = pytesseract.image_to_string(image)
     ingredients = get_ingredients_from_text(text)
 
     return jsonify({'text': text, 'ingredients': ingredients})
 
+# Graph 
 @app.route('/graph')
 def graph():
     return render_template('graph.html')
 
+# Save and record scan log to the database
 def log_scan(name):
     scan = Scan(ingredient_name=name, scanned_at=datetime.now())
     db.session.add(scan)
     db.session.commit()
 
+# Find ingredients from the scan log
 def get_ingredients_from_text(text):
     ingredients = []
     seen = set()
 
+    # Clean and tokenize
     clean_text = text.lower()
     clean_text = re.sub(r'[(){}\[\];:_\-]', ',', clean_text)
     clean_text = re.sub(r'[^a-zA-Z0-9\s,]', '', clean_text)
@@ -214,12 +227,15 @@ def get_ingredients_from_text(text):
     tokens = [token.strip() for token in re.split(r'[,|\n]', clean_text) if token.strip()]
     words = re.split(r'[\s\-]+', clean_text)
 
+    # Match text against database by lowercase
     known_names = [ingredient.name.lower() for ingredient in Ingredient.query.all() if ingredient.name]
 
+    # Match longer phrases with known ingredients
     for phrase in tokens:
         if phrase in seen:
             continue
 
+        # Try exact match if phrase contains known ingredient
         match = next((k for k in known_names if k in phrase), None)
         if match:
             ingredient = get_ingredient_details(match)
@@ -228,7 +244,8 @@ def get_ingredients_from_text(text):
                 insert_scan(ingredient['name'])
                 seen.add(match)
             continue
-
+        
+        #Try fuzzy matching if no exact match found
         fuzzy_result = process.extractOne(phrase, known_names, score_cutoff=85)
         if fuzzy_result:
             match_name, score = fuzzy_result[:2]
@@ -239,6 +256,7 @@ def get_ingredients_from_text(text):
                     insert_scan(ingredient['name'])
                     seen.add(match_name)
 
+    # Match individual words for shorter terms or missed terms
     for word in words:
         if word not in seen and len(word) > 2:
             ingredient = get_ingredient_details(word)
@@ -247,8 +265,10 @@ def get_ingredients_from_text(text):
                 insert_scan(ingredient['name'])
                 seen.add(word)
 
+    # Look foe E-Codes like E100 or INS110 or just 100
     ecodes = re.findall(r'\b(?:e|ins)?\s*\d{3,4}\b', text.lower())
     for code in ecodes:
+        # Extract just the number part
         code_num = re.search(r'\d{3,4}', code).group()
         if code_num not in seen:
             ingredient = get_ingredient_details(code_num)
@@ -259,22 +279,27 @@ def get_ingredients_from_text(text):
 
     return ingredients
 
+# Insert scan record locally
 def insert_scan(name):
     scan = Scan(ingredient_name=name, scanned_at=datetime.now())
     db.session.add(scan)
     db.session.commit()
 
+# Find ingredient details using either e-code or name
 def get_ingredient_details(name):
+    # First, match using e-code
     ingredient = Ingredient.query.filter_by(ecode=name.strip().lower()).first()
     if ingredient:
         return format_ingredient(ingredient)
     
+    # Then match with name that has e-code
     ingredient = Ingredient.query.filter(Ingredient.name.ilike(name)).order_by(Ingredient.ecode.isnot(None)).first()
     if ingredient:
         return format_ingredient(ingredient)
     
     return None
 
+# Convert database ingredient object into a dictionary format
 def format_ingredient(ingredient):
     return {
         'name': ingredient.name,
@@ -284,14 +309,17 @@ def format_ingredient(ingredient):
         'explanation': ingredient.explanation,
     }
 
+# Get scanned statistic
 @app.route('/get-scanned-stats')
 def get_scanned_stats():
+    # Get the time period by weekly or monthly
     period = request.args.get('period', 'weekly')
     if period == 'monthly':
         start_date = datetime.now() - timedelta(days=30)
     else:
         start_date = datetime.now() - timedelta(weeks=1)
 
+    # Query the database
     scanned_stats = db.session.query(Scan.ingredient_name, db.func.count(Scan.id).label('total')) \
         .filter(Scan.scanned_at >= start_date) \
         .group_by(Scan.ingredient_name) \
